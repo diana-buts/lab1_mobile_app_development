@@ -11,8 +11,42 @@ class AddTransactionScreen extends StatefulWidget {
 }
 
 class _AddTransactionScreenState extends State<AddTransactionScreen> {
-  String _type = 'Expense'; // Default
+  String _type = 'Expense';
   String? _category;
+  final _titleController = TextEditingController();
+  final _amountController = TextEditingController();
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  void _saveTransaction() {
+    final title = _titleController.text.trim();
+    final amount = double.tryParse(_amountController.text.trim()) ?? 0;
+
+    if (title.isEmpty || amount <= 0 || _category == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill all fields correctly!'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final newTransaction = {
+      'title': title,
+      'amount': amount,
+      'type': _type,
+      'category': _category,
+      'date': DateTime.now().toString(),
+    };
+
+    Navigator.pop(context, newTransaction);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +64,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Transaction Type Switch
+              // Expense/Income selector
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -59,12 +93,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
 
               const SizedBox(height: 24),
-              const CustomTextField(hint: 'Title (e.g. Coffee, Salary)'),
+              CustomTextField(
+                hint: 'Title (e.g. Coffee, Salary)',
+                controller: _titleController,
+              ),
               const SizedBox(height: 12),
-              const CustomTextField(hint: 'Amount (USD)'),
+              CustomTextField(
+                hint: 'Amount (USD)',
+                controller: _amountController,
+              ),
               const SizedBox(height: 12),
 
-              // Category Dropdown
               DropdownButtonFormField<String>(
                 dropdownColor: Colors.grey[900],
                 style: const TextStyle(color: Colors.white),
@@ -114,20 +153,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
 
               const SizedBox(height: 24),
-              CustomButton(
-                text: 'Save $_type',
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('$_type added successfully!'),
-                      backgroundColor: _type == 'Expense'
-                          ? Colors.redAccent
-                          : Colors.green,
-                    ),
-                  );
-                },
-              ),
+              CustomButton(text: 'Save $_type', onPressed: _saveTransaction),
             ],
           ),
         ),
