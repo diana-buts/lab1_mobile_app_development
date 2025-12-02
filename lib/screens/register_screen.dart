@@ -2,9 +2,61 @@ import 'package:flutter/material.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/custom_textfield.dart';
 import '../routes/app_routes.dart';
+import '../repositories/local_user_repository.dart';
 
-class RegisterScreen extends StatelessWidget {
+class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  final repo = LocalUserRepository();
+
+  void _register() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      _showError("Please fill all fields");
+      return;
+    }
+    if (!email.contains("@")) {
+      _showError("Invalid email format");
+      return;
+    }
+    if (RegExp(r'\d').hasMatch(name)) {
+      _showError("Name cannot contain numbers");
+      return;
+    }
+
+    if (!_isPasswordStrong(password)) {
+      _showError(
+        "Password must be at least 8 characters, include an uppercase letter, a number, and a special character",
+      );
+      return;
+    }
+
+    await repo.saveUser(name, email, password);
+
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
+  }
+
+  bool _isPasswordStrong(String password) {
+
+    final passwordRegex = RegExp(r'^(?=.*[A-Z])(?=.*\d)(?=.*[!@#\$&*~]).{8,}$');
+    return passwordRegex.hasMatch(password);
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,18 +72,22 @@ class RegisterScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 30),
-                const CustomTextField(hint: 'Name'),
+                CustomTextField(hint: 'Name', controller: nameController),
                 const SizedBox(height: 12),
-                const CustomTextField(hint: 'Email'),
+                CustomTextField(hint: 'Email', controller: emailController),
                 const SizedBox(height: 12),
-                const CustomTextField(hint: 'Password', obscureText: true),
-                const SizedBox(height: 24),
-                CustomButton(
-                  text: 'Register',
-                  onPressed: () {
-                    Navigator.pushReplacementNamed(context, AppRoutes.login);
-                  },
+                CustomTextField(
+                  hint: 'Password',
+                  obscureText: true,
+                  controller: passwordController,
                 ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Password must be at least 8 characters, include an uppercase letter, a number, and a special character',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 24),
+                CustomButton(text: 'Register', onPressed: _register),
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('Already have an account? Login'),
