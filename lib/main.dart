@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+/// Головна функція — точка входу в застосунок
 void main() {
   runApp(const MyApp());
 }
 
+/// Основний віджет застосунку
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -17,6 +19,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+/// Stateful віджет для інтерактивного лічильника
 class InteractiveCounter extends StatefulWidget {
   const InteractiveCounter({super.key});
 
@@ -27,23 +30,35 @@ class InteractiveCounter extends StatefulWidget {
 class _InteractiveCounterState extends State<InteractiveCounter> {
   int _counter = 0;
   final TextEditingController _controller = TextEditingController();
+  Color _textColor = Colors.black;
 
+  /// Метод для звичайного інкременту
   void _increment() {
     setState(() {
       _counter++;
     });
   }
 
+  /// Метод для обробки введеного тексту
   void _processInput() {
     final input = _controller.text.trim();
 
     if (input.toLowerCase() == 'avada kedavra') {
       setState(() {
         _counter = 0;
+        _textColor = Colors.red;
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('💥 Spell casted! Counter reset.')),
       );
+
+      // Через секунду повертаємо колір тексту назад
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          setState(() => _textColor = Colors.black);
+        }
+      });
     } else if (int.tryParse(input) != null) {
       setState(() {
         _counter += int.parse(input);
@@ -57,6 +72,13 @@ class _InteractiveCounterState extends State<InteractiveCounter> {
     _controller.clear();
   }
 
+  /// Звільняємо ресурси контролера після завершення
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,11 +90,16 @@ class _InteractiveCounterState extends State<InteractiveCounter> {
           children: [
             Text(
               'Current value: $_counter',
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: _textColor,
+              ),
             ),
             const SizedBox(height: 20),
             TextField(
               controller: _controller,
+              onSubmitted: (_) => _processInput(),
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Enter number or spell',
