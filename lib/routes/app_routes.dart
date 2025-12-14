@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import '../screens/login_screen.dart';
-import '../screens/register_screen.dart';
-import '../screens/home_screen.dart';
-import '../screens/profile_screen.dart';
-import '../screens/add_transaction_screen.dart';
-import '../screens/edit_profile_screen.dart';
+import 'package:my_project/screens/add_transaction_screen.dart';
+import 'package:my_project/screens/edit_profile_screen.dart';
+import 'package:my_project/screens/home_screen.dart';
+import 'package:my_project/screens/login_screen.dart';
+import 'package:my_project/screens/profile_screen.dart';
+import 'package:my_project/screens/register_screen.dart';
 
 class AppRoutes {
   static const login = '/login';

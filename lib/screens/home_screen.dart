@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import '../widgets/app_header.dart';
-import '../routes/app_routes.dart';
-import '../repositories/transaction_repository.dart';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:my_project/repositories/transaction_repository.dart';
+import 'package:my_project/routes/app_routes.dart';
+import 'package:my_project/widgets/app_header.dart';
 
 enum PeriodFilter { all, today, thisWeek, thisMonth, custom }
 
@@ -15,6 +17,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ITransactionRepository _txRepo = TransactionRepository();
   List<Map<String, dynamic>> _transactions = [];
+
+  // MQTT
+  late MqttServerClient _mqtt;
+  String _mqttSensorValue = "—";
+
   PeriodFilter _filter = PeriodFilter.all;
   DateTimeRange? _customRange;
 
@@ -22,10 +29,146 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadTransactions();
+    _initMqtt();
   }
 
+  // ---------------- MQTT INIT ----------------
+  Future<void> _initMqtt() async {
+    _mqtt = MqttServerClient(
+      'localhost',
+      'budgetbuddy-client-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    _mqtt.port = 1884;
+    _mqtt.logging(on: false);
+    _mqtt.keepAlivePeriod = 20;
+    _mqtt.autoReconnect = true;
+
+    _mqtt.onConnected = () => print("MQTT: connected");
+    _mqtt.onDisconnected = () => print("MQTT: disconnected");
+    _mqtt.onAutoReconnect = () => print("MQTT: reconnecting...");
+    _mqtt.onAutoReconnected = () => print("MQTT: auto reconnected");
+
+    try {
+      await _mqtt.connect();
+    } catch (e) {
+      print("MQTT ERROR: $e");
+      try {
+        _mqtt.disconnect();
+      } catch (_) {}
+      return;
+    }
+
+    if (_mqtt.connectionStatus?.state == MqttConnectionState.connected) {
+      print("MQTT connected successfully");
+
+      _mqtt.subscribe('sensor/budget', MqttQos.atLeastOnce);
+
+      _mqtt.updates?.listen((messages) async {
+        try {
+          final recMsg = messages.first.payload as MqttPublishMessage;
+
+          // Отримуємо рядок
+          String raw = MqttPublishPayload.bytesToStringAsString(
+            recMsg.payload.message,
+          );
+
+          // Очищення
+          String cleaned = raw
+              .replaceAll(RegExp(r'[\u0000-\u001F]'), '')
+              .replaceAll('–', '-')
+              .replaceAll('—', '-')
+              .replaceAll('−', '-')
+              .replaceAll('‐', '-')
+              .trim();
+
+          print("📩 MQTT RAW: '$cleaned'");
+
+          // Парсимо число
+          final numRegex = RegExp(r'[-+]?\d+(\.\d+)?');
+          final match = numRegex.firstMatch(cleaned);
+
+          if (match == null) {
+            print("❌ Число не знайдено");
+            setState(() => _mqttSensorValue = cleaned);
+            return;
+          }
+
+          final numStr = match.group(0)!;
+          double value = double.tryParse(numStr) ?? 0;
+
+          print("🔢 Розпарсене число: $value");
+
+          // Визначаємо тип і суму
+          String transactionType;
+          double transactionAmount;
+
+          if (value < 0) {
+            // Від'ємне → Витрата
+            transactionType = "Expense";
+            transactionAmount = value.abs();
+            print(
+              "💸 Витрата: -$value → зберігаємо тип=Expense, amount=$transactionAmount",
+            );
+          } else {
+            // Позитивне → Дохід
+            transactionType = "Income";
+            transactionAmount = value;
+            print(
+              "💰 Дохід: +$value → зберігаємо тип=Income, amount=$transactionAmount",
+            );
+          }
+
+          // Оновлюємо сенсор UI
+          setState(() => _mqttSensorValue = cleaned);
+
+          // Створюємо транзакцію
+          final newTransaction = {
+            'id': DateTime.now().millisecondsSinceEpoch.toString(),
+            'title': transactionType == 'Expense'
+                ? 'Sensor Expense'
+                : 'Sensor Income',
+            'amount': transactionAmount, // ПОЗИТИВНЕ число
+            'type': transactionType, // "Income" або "Expense"
+            'category': 'Sensor',
+            'date': DateTime.now().toIso8601String(),
+          };
+
+          print(
+            "✅ Зберігаємо: type=${newTransaction['type']}, amount=${newTransaction['amount']}",
+          );
+
+          // Зберігаємо
+          await _txRepo.add(newTransaction);
+          await _loadTransactions();
+
+          print("✅ Транзакція збережена і список оновлено");
+        } catch (e, st) {
+          print("❌ MQTT ERROR: $e\n$st");
+        }
+      });
+    } else {
+      print("MQTT connection state: ${_mqtt.connectionStatus}");
+    }
+  }
+
+  @override
+  void dispose() {
+    try {
+      _mqtt.disconnect();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  // ---------------- Transactions ----------------
   Future<void> _loadTransactions() async {
     final list = await _txRepo.loadAll();
+    print("📋 Завантажено ${list.length} транзакцій");
+
+    // Виводимо для дебагу
+    for (var tx in list) {
+      print("  - ${tx['title']}: type=${tx['type']}, amount=${tx['amount']}");
+    }
+
     setState(() => _transactions = list);
   }
 
@@ -33,7 +176,6 @@ class _HomeScreenState extends State<HomeScreen> {
     await _txRepo.saveAll(_transactions);
   }
 
-  // Parse date string or DateTime stored by different screens
   DateTime _parseDate(dynamic src) {
     if (src == null) return DateTime.now();
     if (src is DateTime) return src;
@@ -41,18 +183,14 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         return DateTime.parse(src);
       } catch (_) {
-        // last resort: DateTime from toString()
         try {
           return DateTime.parse(src.replaceAll(' ', 'T'));
-        } catch (_) {
-          return DateTime.now();
-        }
+        } catch (_) {}
       }
     }
     return DateTime.now();
   }
 
-  // confirm dialog for delete
   Future<bool?> _confirmDeleteDialog(BuildContext ctx, String title) {
     return showDialog<bool>(
       context: ctx,
@@ -83,26 +221,15 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirmed != true) return;
 
     final id = tx['id']?.toString();
-    setState(() {
-      _transactions.removeAt(globalIndex);
-    });
+    setState(() => _transactions.removeAt(globalIndex));
+
     if (id != null && id.isNotEmpty) {
       await _txRepo.removeById(id);
     } else {
       await _saveTransactions();
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Deleted "${tx['title'] ?? ''}"'),
-        backgroundColor: Colors.redAccent,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
-    );
   }
 
-  // When Dismissible requests confirmation
   Future<bool> _onDismissConfirm(
     DismissDirection direction,
     String txId,
@@ -110,26 +237,13 @@ class _HomeScreenState extends State<HomeScreen> {
   ) async {
     final confirmed = await _confirmDeleteDialog(context, title);
     if (confirmed != true) return false;
-
     await _txRepo.removeById(txId);
-    // update local state
-    setState(() {
-      _transactions.removeWhere((t) => (t['id']?.toString() ?? '') == txId);
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Deleted "$title"'),
-        backgroundColor: Colors.redAccent,
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
+    setState(
+      () => _transactions.removeWhere((t) => t['id']?.toString() == txId),
     );
-
     return true;
   }
 
-  // Helpers for filtering
   bool _inRange(DateTime d, DateTime start, DateTime end) {
     final dd = DateTime(d.year, d.month, d.day);
     final s = DateTime(start.year, start.month, start.day);
@@ -138,8 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredTransactions {
-    if (_filter == PeriodFilter.all) return List.unmodifiable(_transactions);
-
+    if (_filter == PeriodFilter.all) return _transactions;
     final now = DateTime.now();
     DateTime start;
     DateTime end;
@@ -148,16 +261,15 @@ class _HomeScreenState extends State<HomeScreen> {
       start = DateTime(now.year, now.month, now.day);
       end = start;
     } else if (_filter == PeriodFilter.thisWeek) {
-      final weekday = now.weekday; // 1..7
       start = DateTime(
         now.year,
         now.month,
         now.day,
-      ).subtract(Duration(days: weekday - 1)); // Monday
+      ).subtract(Duration(days: now.weekday - 1));
       end = start.add(const Duration(days: 6));
     } else if (_filter == PeriodFilter.thisMonth) {
-      start = DateTime(now.year, now.month, 1);
-      end = DateTime(now.year, now.month + 1, 0); // last day of month
+      start = DateTime(now.year, now.month);
+      end = DateTime(now.year, now.month + 1, 0);
     } else {
       if (_customRange == null) return [];
       start = _customRange!.start;
@@ -171,21 +283,50 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Map<String, double> get _stats {
-    final list = _filteredTransactions;
-    double income = 0;
-    double expense = 0;
-    for (final t in list) {
-      final type = t['type']?.toString() ?? 'Expense';
-      final amount = (t['amount'] is num)
-          ? (t['amount'] as num).toDouble()
-          : double.tryParse(t['amount']?.toString() ?? '0') ?? 0.0;
+    double totalIncome = 0;
+    double totalExpense = 0;
+
+    print(
+      "📊 Розрахунок статистики для ${_filteredTransactions.length} транзакцій:",
+    );
+
+    for (final tx in _filteredTransactions) {
+      // Отримуємо тип
+      final typeRaw = tx['type']?.toString() ?? 'Expense';
+      final type = typeRaw.trim();
+
+      // Отримуємо суму
+      double amount = 0;
+      if (tx['amount'] is num) {
+        amount = (tx['amount'] as num).toDouble();
+      } else if (tx['amount'] is String) {
+        amount = double.tryParse(tx['amount'] as String) ?? 0;
+      }
+
+      // Беремо абсолютне значення (на всяк випадок)
+      amount = amount.abs();
+
+      // Додаємо до відповідної категорії
       if (type == 'Income') {
-        income += amount;
+        totalIncome += amount;
+        print(
+          "  ✅ Income: +${amount.toStringAsFixed(2)} (загалом income: ${totalIncome.toStringAsFixed(2)})",
+        );
       } else {
-        expense += amount;
+        totalExpense += amount;
+        print(
+          "  ❌ Expense: +${amount.toStringAsFixed(2)} (загалом expense: ${totalExpense.toStringAsFixed(2)})",
+        );
       }
     }
-    return {'income': income, 'expense': expense, 'balance': income - expense};
+
+    final balance = totalIncome - totalExpense;
+
+    print(
+      "📊 ПІДСУМОК: Income=$totalIncome, Expense=$totalExpense, Balance=$balance",
+    );
+
+    return {'income': totalIncome, 'expense': totalExpense, 'balance': balance};
   }
 
   Future<void> _chooseCustomRange() async {
@@ -194,20 +335,12 @@ class _HomeScreenState extends State<HomeScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
       initialDateRange: _customRange,
-      builder: (context, child) => Theme(
-        data: Theme.of(
-          context,
-        ).copyWith(dialogBackgroundColor: Colors.grey[900]),
-        child: child ?? const SizedBox.shrink(),
-      ),
     );
-
-    if (picked != null) {
+    if (picked != null)
       setState(() {
         _filter = PeriodFilter.custom;
         _customRange = picked;
       });
-    }
   }
 
   String _formatDateForTile(dynamic src) {
@@ -218,7 +351,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final stats = _stats;
-
     return Scaffold(
       appBar: AppHeader(
         title: 'BudgetBuddy 💰',
@@ -241,21 +373,18 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           );
-          if (confirmed == true) {
-            // Deletion/logout logic is not here — handle through UserRepository or appropriate code
+          if (confirmed == true)
             Navigator.pushNamedAndRemoveUntil(
               context,
               AppRoutes.login,
               (r) => false,
             );
-          }
         },
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline, color: Colors.white),
             onPressed: () async {
               await Navigator.pushNamed(context, AppRoutes.profile);
-              // reload list after return (in case transactions were modified)
               await _loadTransactions();
             },
           ),
@@ -265,14 +394,38 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Top row: period filter + Add button (calls your AddTransactionScreen)
+            // MQTT sensor card
+            Card(
+              color: Colors.grey[850],
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Sensor:",
+                      style: TextStyle(color: Colors.white70, fontSize: 16),
+                    ),
+                    Text(
+                      _mqttSensorValue,
+                      style: const TextStyle(
+                        color: Colors.tealAccent,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Filter + Add
             Row(
               children: [
                 Expanded(
                   child: DropdownButton<PeriodFilter>(
                     value: _filter,
                     isExpanded: true,
-                    dropdownColor: Colors.grey[900],
                     items: const [
                       DropdownMenuItem(
                         value: PeriodFilter.all,
@@ -297,14 +450,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                     onChanged: (v) {
                       if (v == null) return;
-                      if (v == PeriodFilter.custom) {
+                      if (v == PeriodFilter.custom)
                         _chooseCustomRange();
-                      } else {
+                      else
                         setState(() {
                           _filter = v;
-                          if (v != PeriodFilter.custom) _customRange = null;
+                          _customRange = null;
                         });
-                      }
                     },
                   ),
                 ),
@@ -317,39 +469,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                     if (res != null && res is Map<String, dynamic>) {
                       final tx = Map<String, dynamic>.from(res);
-                      // Normalize id and date
-                      tx['id'] =
-                          tx['id']?.toString() ??
-                          DateTime.now().millisecondsSinceEpoch.toString();
+                      tx['id'] ??= DateTime.now().millisecondsSinceEpoch
+                          .toString();
                       tx['date'] = (tx['date'] is DateTime)
                           ? (tx['date'] as DateTime).toIso8601String()
-                          : tx['date']?.toString() ??
-                                DateTime.now().toIso8601String();
-
-                      // Persist via repo
+                          : DateTime.now().toIso8601String();
                       await _txRepo.add(tx);
                       await _loadTransactions();
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Transaction Added'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
                     }
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.tealAccent,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('Add'),
+                  child: const Text("Add"),
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // Statistics
+            // Statistics card
             Card(
               color: Colors.grey[850],
               child: Padding(
@@ -366,9 +500,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Income',
                           style: TextStyle(color: Colors.white70),
                         ),
-                        const SizedBox(height: 6),
                         Text(
-                          '${stats['income']?.toStringAsFixed(2)} \$',
+                          '+${stats['income']!.toStringAsFixed(2)} \$',
                           style: const TextStyle(
                             color: Colors.greenAccent,
                             fontWeight: FontWeight.bold,
@@ -382,9 +515,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Expenses',
                           style: TextStyle(color: Colors.white70),
                         ),
-                        const SizedBox(height: 6),
                         Text(
-                          '${stats['expense']?.toStringAsFixed(2)} \$',
+                          '-${stats['expense']!.toStringAsFixed(2)} \$',
                           style: const TextStyle(
                             color: Colors.redAccent,
                             fontWeight: FontWeight.bold,
@@ -398,11 +530,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Balance',
                           style: TextStyle(color: Colors.white70),
                         ),
-                        const SizedBox(height: 6),
                         Text(
-                          '${stats['balance']?.toStringAsFixed(2)} \$',
+                          '${stats['balance']! >= 0 ? '+' : ''}${stats['balance']!.toStringAsFixed(2)} \$',
                           style: TextStyle(
-                            color: (stats['balance'] ?? 0) < 0
+                            color: (stats['balance']! < 0)
                                 ? Colors.redAccent
                                 : Colors.greenAccent,
                             fontWeight: FontWeight.bold,
@@ -414,15 +545,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // Transaction list (filtered)
+            // Transactions list
             Expanded(
               child: _filteredTransactions.isEmpty
                   ? const Center(
                       child: Text(
-                        'No transactions for selected period',
+                        'No transactions',
                         style: TextStyle(color: Colors.white70),
                       ),
                     )
@@ -431,33 +560,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemBuilder: (context, index) {
                         final tx = _filteredTransactions[index];
                         final id = tx['id']?.toString() ?? '';
-                        final title = tx['title']?.toString() ?? 'Untitled';
-                        final category = tx['category']?.toString() ?? '';
-                        final type = tx['type']?.toString() ?? 'Expense';
-                        final amount = (tx['amount'] is num)
-                            ? (tx['amount'] as num).toString()
-                            : (tx['amount']?.toString() ?? '0');
-                        final dateStr = tx['date'];
-                        final dateLabel = _formatDateForTile(dateStr);
-
-                        // Because _filteredTransactions is a filtered view, to delete we need global index:
                         final globalIndex = _transactions.indexWhere(
-                          (t) => (t['id']?.toString() ?? '') == id,
+                          (t) => t['id']?.toString() == id,
                         );
+
+                        // Отримуємо тип
+                        final typeRaw = tx['type']?.toString() ?? 'Expense';
+                        final type = typeRaw.trim();
+                        final isExpense = type == 'Expense';
+
+                        // Отримуємо суму
+                        double amount = 0;
+                        if (tx['amount'] is num) {
+                          amount = (tx['amount'] as num).toDouble();
+                        } else if (tx['amount'] is String) {
+                          amount = double.tryParse(tx['amount'] as String) ?? 0;
+                        }
+                        amount = amount.abs();
 
                         return Dismissible(
                           key: ValueKey(id),
                           direction: DismissDirection.endToStart,
-                          confirmDismiss: (direction) =>
-                              _onDismissConfirm(direction, id, title),
+                          confirmDismiss: (d) => _onDismissConfirm(
+                            d,
+                            id,
+                            tx['title']?.toString() ?? '',
+                          ),
                           background: Container(
                             alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.redAccent,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            padding: const EdgeInsets.only(right: 20),
+                            color: Colors.redAccent,
                             child: const Icon(
                               Icons.delete,
                               color: Colors.white,
@@ -465,45 +597,28 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           child: Card(
                             color: Colors.grey[900],
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
                             child: ListTile(
                               title: Text(
-                                title,
+                                tx['title']?.toString() ?? '',
                                 style: const TextStyle(color: Colors.white),
                               ),
                               subtitle: Text(
-                                '$category • $type • $dateLabel',
+                                '${tx['category']} • $type • ${_formatDateForTile(tx['date'])}',
                                 style: const TextStyle(color: Colors.white70),
                               ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '${type == 'Expense' ? '-' : '+'}$amount\$',
-                                    style: TextStyle(
-                                      color: type == 'Expense'
-                                          ? Colors.redAccent
-                                          : Colors.greenAccent,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.redAccent,
-                                    ),
-                                    onPressed: () async {
-                                      if (globalIndex == -1) return;
-                                      await _deleteTransactionByIndex(
-                                        globalIndex,
-                                      );
-                                    },
-                                  ),
-                                ],
+                              trailing: Text(
+                                '${isExpense ? '-' : '+'}${amount.toStringAsFixed(2)} \$',
+                                style: TextStyle(
+                                  color: isExpense
+                                      ? Colors.redAccent
+                                      : Colors.greenAccent,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
+                              onLongPress: () async {
+                                if (globalIndex != -1)
+                                  await _deleteTransactionByIndex(globalIndex);
+                              },
                             ),
                           ),
                         );

@@ -1,7 +1,8 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
-import '../widgets/custom_button.dart';
-import '../widgets/custom_textfield.dart';
-import '../widgets/app_header.dart';
+import 'package:my_project/widgets/app_header.dart';
+import 'package:my_project/widgets/custom_button.dart';
+import 'package:my_project/widgets/custom_textfield.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   const AddTransactionScreen({super.key});
@@ -23,6 +24,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     super.dispose();
   }
 
+  String _generateId() {
+    final rand = Random();
+    return DateTime.now().millisecondsSinceEpoch.toString() +
+        "_" +
+        rand.nextInt(100000).toString();
+  }
+
   void _saveTransaction() {
     final title = _titleController.text.trim();
     final amount = double.tryParse(_amountController.text.trim()) ?? 0;
@@ -38,11 +46,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     }
 
     final newTransaction = {
+      'id': _generateId(),
       'title': title,
       'amount': amount,
-      'type': _type,
+      'type': _type, // Income | Expense
       'category': _category,
-      'date': DateTime.now().toString(),
+      'date': DateTime.now().toIso8601String(),
     };
 
     Navigator.pop(context, newTransaction);
@@ -64,7 +73,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Expense/Income selector
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -115,41 +123,22 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                     borderSide: BorderSide.none,
                   ),
                 ),
-                value: _category,
                 onChanged: (value) => setState(() => _category = value),
                 items: _type == 'Expense'
                     ? const [
                         DropdownMenuItem(value: 'Food', child: Text('Food')),
-                        DropdownMenuItem(
-                          value: 'Transport',
-                          child: Text('Transport'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Shopping',
-                          child: Text('Shopping'),
-                        ),
+                        DropdownMenuItem(value: 'Transport', child: Text('Transport')),
+                        DropdownMenuItem(value: 'Shopping', child: Text('Shopping')),
                         DropdownMenuItem(value: 'Bills', child: Text('Bills')),
                         DropdownMenuItem(value: 'Other', child: Text('Other')),
                       ]
                     : const [
-                        DropdownMenuItem(
-                          value: 'Salary',
-                          child: Text('Salary'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Freelance',
-                          child: Text('Freelance'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Investment',
-                          child: Text('Investment'),
-                        ),
+                        DropdownMenuItem(value: 'Salary', child: Text('Salary')),
+                        DropdownMenuItem(value: 'Freelance', child: Text('Freelance')),
+                        DropdownMenuItem(value: 'Investment', child: Text('Investment')),
                         DropdownMenuItem(value: 'Gift', child: Text('Gift')),
                       ],
-                hint: const Text(
-                  'Select Category',
-                  style: TextStyle(color: Colors.white54),
-                ),
+                hint: const Text('Select Category', style: TextStyle(color: Colors.white54)),
               ),
 
               const SizedBox(height: 24),
