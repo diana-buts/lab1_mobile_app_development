@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../widgets/app_header.dart';
-import '../repositories/local_user_repository.dart';
-import '../repositories/user_repository.dart';
+import 'package:my_project/repositories/local_user_repository.dart';
+import 'package:my_project/repositories/user_repository.dart';
+import 'package:my_project/widgets/app_header.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});

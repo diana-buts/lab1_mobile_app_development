@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../widgets/app_header.dart';
-import '../widgets/custom_button.dart';
-import '../routes/app_routes.dart';
-import '../repositories/local_user_repository.dart';
-import '../repositories/user_repository.dart';
+import 'package:my_project/repositories/local_user_repository.dart';
+import 'package:my_project/repositories/user_repository.dart';
+import 'package:my_project/routes/app_routes.dart';
+import 'package:my_project/widgets/app_header.dart';
+import 'package:my_project/widgets/custom_button.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});

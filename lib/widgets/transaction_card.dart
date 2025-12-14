@@ -5,10 +5,7 @@ class TransactionCard extends StatelessWidget {
   final String amount;
   final bool isIncome;
   const TransactionCard({
-    super.key,
-    required this.title,
-    required this.amount,
-    required this.isIncome,
+    required this.title, required this.amount, required this.isIncome, super.key,
   });
 
   @override
@@ -24,7 +21,7 @@ class TransactionCard extends StatelessWidget {
         ),
         title: Text(title, style: const TextStyle(color: Colors.white)),
         trailing: Text(
-          '${isIncome ? '+' : '-'} \$${amount}',
+          '${isIncome ? '+' : '-'} \$$amount',
           style: TextStyle(
             color: isIncome ? Colors.greenAccent : Colors.redAccent,
             fontWeight: FontWeight.bold,

@@ -7,8 +7,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onLogout;
 
   const AppHeader({
-    super.key,
-    required this.title,
+    required this.title, super.key,
     this.actions,
     this.showLogout = false,
     this.onLogout,
