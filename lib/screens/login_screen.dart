@@ -1,6 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:my_project/repositories/local_user_repository.dart';
+import 'package:my_project/repositories/user_repository_impl.dart';
 import 'package:my_project/routes/app_routes.dart';
 import 'package:my_project/widgets/custom_button.dart';
 import 'package:my_project/widgets/custom_textfield.dart';
@@ -16,7 +16,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
 
-  final repo = LocalUserRepository();
+  final repo = BudgetUserRepository();
 
   Future<void> _login() async {
     final email = emailController.text.trim();
@@ -27,7 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // Перевірка інтернету
+    // Перевірка інтернету — твоя логіка лишається
     final connection = await Connectivity().checkConnectivity();
     if (connection == ConnectivityResult.none) {
       _showError('No internet connection');

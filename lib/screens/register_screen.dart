@@ -1,6 +1,6 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:my_project/repositories/local_user_repository.dart';
+import 'package:my_project/repositories/user_repository_impl.dart';
 import 'package:my_project/routes/app_routes.dart';
 import 'package:my_project/widgets/custom_button.dart';
 import 'package:my_project/widgets/custom_textfield.dart';
@@ -17,7 +17,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
 
-  final repo = LocalUserRepository();
+  // ❗ Реальний репозиторій для лаби 5
+  final repo = BudgetUserRepository();
 
   Future<void> _register() async {
     final name = nameController.text.trim();
@@ -53,10 +54,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Збереження юзера
+    // ❗ Зберігаємо користувача у BudgetUserRepository
     await repo.saveUser(name, email, password);
 
-    // Одразу логінимо
+    // ❗ Робимо автологін
     Navigator.pushReplacementNamed(context, AppRoutes.home);
   }
 
